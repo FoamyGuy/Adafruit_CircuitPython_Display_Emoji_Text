@@ -80,7 +80,7 @@ class EmojiLabel(Widget):
         text,
         scale=1,
         ascii_font=terminalio.FONT,
-        fg_color=0xFFFFFF,
+        color=0xFFFFFF,
         # ruff: noqa: PLR0912, PLR0915, PLR1702
         # Too many branches, Too many statements, Too many nested blocks
     ):
@@ -96,7 +96,7 @@ class EmojiLabel(Widget):
         self.ascii_palette = displayio.Palette(2)
         self.ascii_palette[0] = 0x000000
         self.ascii_palette.make_transparent(0)
-        self.ascii_palette[1] = fg_color
+        self.ascii_palette[1] = color
         self._text = text
         self._width = 0
         self._height = 12
