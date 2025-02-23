@@ -76,13 +76,13 @@ class EmojiLabel(Widget):
     FIVE_WIDES = [127947, 9977, 128105, 127948, 128104, 128065, 127987]
 
     def __init__(
-            self,
-            text,
-            scale=1,
-            ascii_font=terminalio.FONT,
-            fg_color=0xFFFFFF,
-            # ruff: noqa: PLR0912, PLR0915, PLR1702
-            # Too many branches, Too many statements, Too many nested blocks
+        self,
+        text,
+        scale=1,
+        ascii_font=terminalio.FONT,
+        fg_color=0xFFFFFF,
+        # ruff: noqa: PLR0912, PLR0915, PLR1702
+        # Too many branches, Too many statements, Too many nested blocks
     ):
         try:
             os.stat("emoji")
@@ -104,12 +104,12 @@ class EmojiLabel(Widget):
         self._row_width = 0
         self._next_x = 0
         self._next_y = 0
-
+        self._bmp_cache = {}
         self._update_text(self._text)
 
     def _update_text(self, new_text):
-        while len(self) > 0:
-            del self[0]
+        for tg in self:
+            tg.hidden = True
 
         self._width = 0
         self._height = 12
@@ -124,9 +124,7 @@ class EmojiLabel(Widget):
             if skip_count > 0:
                 skip_count -= 1
                 continue
-            # print(char)
             if char == "\n":
-                # print("newline")
                 self._next_y += 12
                 self._next_x = 0
                 self._height += 12
@@ -136,24 +134,34 @@ class EmojiLabel(Widget):
 
             found_glyph = self.font.get_glyph(ord(char))
             if found_glyph is not None:
-                bmp = displayio.Bitmap(found_glyph.width, found_glyph.height, 2)
-                glyph_offset_x = found_glyph.tile_index * found_glyph.width
-                bitmaptools.blit(
-                    bmp,
-                    found_glyph.bitmap,
-                    0,
-                    0,
-                    x1=glyph_offset_x,
-                    y1=0,
-                    x2=glyph_offset_x + found_glyph.width,
-                    y2=found_glyph.height,
-                    skip_source_index=0,
-                )
-                tg = displayio.TileGrid(bitmap=bmp, pixel_shader=self.ascii_palette)
-                self.append(tg)
+                char_hash = hash(char)
+                cached_tg = self._get_from_cache(char_hash)
+                if cached_tg is None:
+                    bmp = displayio.Bitmap(found_glyph.width, found_glyph.height, 2)
+                    glyph_offset_x = found_glyph.tile_index * found_glyph.width
+                    bitmaptools.blit(
+                        bmp,
+                        found_glyph.bitmap,
+                        0,
+                        0,
+                        x1=glyph_offset_x,
+                        y1=0,
+                        x2=glyph_offset_x + found_glyph.width,
+                        y2=found_glyph.height,
+                        skip_source_index=0,
+                    )
+                    tg = displayio.TileGrid(bitmap=bmp, pixel_shader=self.ascii_palette)
+
+                    self._add_to_cache(char_hash, tg)
+                    self.append(tg)
+
+                else:
+                    tg = cached_tg
+                    bmp = tg.bitmap
 
                 tg.x = self._next_x
                 tg.y = self._next_y
+                tg.hidden = False
                 self._row_width += bmp.width
                 if self._width < self._row_width:
                     self._width = self._row_width
@@ -170,7 +178,7 @@ class EmojiLabel(Widget):
                             try:
                                 filename = f"emoji/U+{ord(char):X}_U+{ord(new_text[i + 1]):X}_U+{ord(new_text[i + 2]):X}_U+{ord(new_text[i + 3]):X}_U+{ord(new_text[i + 4]):X}.png"  # noqa: E501, Line too long
                                 bmp, palette = adafruit_imageload.load(filename)
-
+                                palette.make_transparent(0)
                                 skip_count = 4
                                 break
                             except (OSError, IndexError):
@@ -180,6 +188,7 @@ class EmojiLabel(Widget):
                         try:
                             filename = f"emoji/U+{ord(char):X}_U+{ord(new_text[i + 1]):X}_U+{ord(new_text[i + 2]):X}_U+{ord(new_text[i + 3]):X}.png"  # noqa: E501, Line too long
                             bmp, palette = adafruit_imageload.load(filename)
+                            palette.make_transparent(0)
                             skip_count = 3
                             break
                         except (OSError, IndexError):
@@ -187,6 +196,7 @@ class EmojiLabel(Widget):
                             try:
                                 filename = f"emoji/U+{ord(char):X}_U+{ord(new_text[i + 1]):X}.png"
                                 bmp, palette = adafruit_imageload.load(filename)
+                                palette.make_transparent(0)
                                 skip_count = 1
                                 break
                             except (OSError, IndexError):
@@ -197,24 +207,58 @@ class EmojiLabel(Widget):
                     filename = f"emoji/U+{ord(char):X}.png"
                     try:
                         bmp, palette = adafruit_imageload.load(filename)
-
+                        palette.make_transparent(0)
                     except OSError:
                         print(f"Unable to render: {hex(ord(char))}")
 
                 try:
-                    tg = displayio.TileGrid(bitmap=bmp, pixel_shader=palette)
+                    char_hash = hash(filename)
+                    cached_tg = self._get_from_cache(char_hash)
+                    if cached_tg is None:
+                        tg = displayio.TileGrid(bitmap=bmp, pixel_shader=palette)
+                        self.append(tg)
+                    else:
+                        tg = cached_tg
+                        bmp = tg.bitmap
+
+                    self._add_to_cache(char_hash, tg)
+
                     tg.x = self._next_x
                     tg.y = self._next_y
+                    tg.hidden = False
 
                     self._row_width += bmp.width
                     if self._width < self._row_width:
                         self._width = self._row_width
                         self._bounding_box[2] = self._width
                     self._next_x += bmp.width + 1
-                    self.append(tg)
+
                 except TypeError:
                     # Unsupported bitmap type
                     print(f"Unable to render {hex(ord(char))}. Unsupported bitmap")
+        self._cleanup_cache()
+
+    def _get_from_cache(self, char_hash):
+        if char_hash not in self._bmp_cache.keys():
+            return None
+        for _tg in self._bmp_cache[char_hash]:
+            if _tg.hidden:
+                return _tg
+        return None
+
+    def _add_to_cache(self, char_hash, tilegrid):
+        if char_hash in self._bmp_cache.keys():
+            self._bmp_cache[char_hash].append(tilegrid)
+        else:
+            self._bmp_cache[char_hash] = [tilegrid]
+
+    def _cleanup_cache(self):
+        for char_hash in self._bmp_cache.keys():
+            for i in range(len(self._bmp_cache[char_hash]) - 1, -1, -1):
+                if self._bmp_cache[char_hash][i].hidden:
+                    del self[self.index(self._bmp_cache[char_hash][i])]
+                    self._bmp_cache[char_hash][i].bitmap.deinit()
+                    del self._bmp_cache[char_hash][i]
 
     @property
     def text(self):
